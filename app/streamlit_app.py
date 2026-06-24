@@ -1,22 +1,12 @@
 import os, sys
-os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
-
 import streamlit as st
-import cv2
 import numpy as np
 import pickle
-import collections
-import tempfile
+from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.keypoint_utils import mediapipe_detection, draw_styled_landmarks, extract_keypoints
 
-# ── Page config ────────────────────────────────
-st.set_page_config(
-    page_title="Sign Language Detector",
-    page_icon="🤟",
-    layout="wide"
-)
+st.set_page_config(page_title="Sign Language Detector", page_icon="🤟", layout="wide")
 
 st.markdown("""
 <style>
@@ -25,8 +15,6 @@ st.markdown("""
 .pred-box   { background: #1e3a1e; border: 2px solid #4CAF50; border-radius: 12px;
               padding: 1.5rem; text-align: center; font-size: 2.5rem;
               font-weight: bold; color: #4CAF50; margin: 1rem 0; }
-.sentence-box { background: #1a1a2e; border: 1px solid #555; border-radius: 8px;
-                padding: 1rem; font-size: 1.3rem; color: #ddd; min-height: 3rem; }
 .stat-box   { background: #1a1a2e; border-radius: 8px; padding: 1rem; text-align: center; }
 </style>
 """, unsafe_allow_html=True)
@@ -34,7 +22,6 @@ st.markdown("""
 st.markdown('<div class="main-title">🤟 Sign Language Detector</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">Real-time sign language recognition using AI</div>', unsafe_allow_html=True)
 
-# ── Load model ─────────────────────────────────
 @st.cache_resource
 def load_model():
     path = 'model/rf_model.pkl'
@@ -46,12 +33,11 @@ def load_model():
 model, labels = load_model()
 
 if model is None:
-    st.error("❌ Model not found. Train the model first!")
+    st.error("❌ Model not found!")
     st.stop()
 
 st.success(f"✅ Model loaded — {len(labels)} signs: **{', '.join(labels)}**")
 
-# ── Stats ──────────────────────────────────────
 col1, col2, col3 = st.columns(3)
 with col1:
     st.markdown('<div class="stat-box"><h3>🎯 96.67%</h3><p>Model Accuracy</p></div>', unsafe_allow_html=True)
@@ -62,107 +48,72 @@ with col3:
 
 st.markdown("---")
 
-# ── Tabs ───────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📸 Snapshot Detection", "🎬 Video Upload", "ℹ️ About"])
+tab1, tab2, tab3 = st.tabs(["🤟 Supported Signs", "📊 Model Info", "ℹ️ About"])
 
-# ── Tab 1: Snapshot ────────────────────────────
 with tab1:
-    st.subheader("Take a snapshot and detect the sign")
-    st.info("💡 For live webcam detection, run: `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python predict_realtime.py`")
+    st.subheader("10 Supported Signs")
+    st.info("💡 For live detection run locally: `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python predict_realtime.py`")
 
-    snapshot = st.camera_input("📷 Show your sign and take a photo")
+    signs_info = {
+        "hello":  ("👋", "Open palm, wave from forehead outward like a salute"),
+        "thanks": ("🙏", "Flat hand touches chin/lips, move forward"),
+        "yes":    ("✊", "Make a fist, nod it up and down"),
+        "no":     ("✌️", "Index + middle finger, wave side to side"),
+        "please": ("🙏", "Flat hand on chest, rub in a circle"),
+        "help":   ("👍", "Thumbs up on open palm, lift both up"),
+        "sorry":  ("✊", "Fist on chest, rub in a circle"),
+        "name":   ("👆", "Two fingers tap on top of two fingers"),
+        "good":   ("👍", "Flat hand from chin, move forward and down"),
+        "bad":    ("👎", "Flat hand from chin, flip hand downward"),
+    }
 
-    if snapshot:
-        img_bytes = snapshot.getvalue()
-        nparr = np.frombuffer(img_bytes, np.uint8)
-        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    cols = st.columns(2)
+    for i, (sign, (emoji, desc)) in enumerate(signs_info.items()):
+        with cols[i % 2]:
+            st.markdown(f"""
+            <div style='background:#1a1a2e;border-radius:8px;padding:1rem;margin:0.5rem 0;border-left:4px solid #4CAF50'>
+                <h3>{emoji} {sign.upper()}</h3>
+                <p style='color:#aaa'>{desc}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            _, results = mediapipe_detection(frame)
-            frame_drawn = draw_styled_landmarks(frame.copy(), results)
-            st.image(cv2.cvtColor(frame_drawn, cv2.COLOR_BGR2RGB),
-                     caption="Hand landmarks detected", use_column_width=True)
-
-        with col2:
-            kp = extract_keypoints(results)
-            # Repeat single frame to fill sequence
-            sequence = [kp] * 30
-            flat = np.array(sequence).flatten().reshape(1, -1)
-            probs = model.predict_proba(flat)[0]
-            idx = int(np.argmax(probs))
-            conf = float(probs[idx])
-            sign = labels[idx]
-
-            if conf > 0.5:
-                st.markdown(f'<div class="pred-box">🤟 {sign.upper()}<br><span style="font-size:1rem;color:#aaa">{conf:.0%} confidence</span></div>', unsafe_allow_html=True)
-            else:
-                st.warning(f"Low confidence ({conf:.0%}) — try a clearer sign")
-
-            st.markdown("**All sign probabilities:**")
-            chart_data = dict(zip(labels, [float(p) for p in probs]))
-            st.bar_chart(chart_data)
-
-# ── Tab 2: Video Upload ────────────────────────
 with tab2:
-    st.subheader("Upload a video to detect signs")
-    video_file = st.file_uploader("Upload video", type=["mp4", "avi", "mov"])
+    st.subheader("Model Performance")
+    st.markdown("### 📊 Classification Report")
 
-    if video_file:
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-            tmp.write(video_file.read())
-            tmp_path = tmp.name
+    report_data = {
+        "Sign":      ["hello","thanks","yes","no","please","help","sorry","name","good","bad"],
+        "Precision": [1.00, 0.83, 1.00, 1.00, 1.00, 0.83, 1.00, 1.00, 1.00, 1.00],
+        "Recall":    [1.00, 1.00, 0.86, 1.00, 1.00, 1.00, 0.80, 1.00, 1.00, 1.00],
+        "F1-Score":  [1.00, 0.91, 0.92, 1.00, 1.00, 0.91, 0.89, 1.00, 1.00, 1.00],
+    }
+    import pandas as pd
+    df = pd.DataFrame(report_data)
+    st.dataframe(df, use_container_width=True)
+    st.metric("Overall Accuracy", "96.67%")
 
-        st.video(video_file)
+    st.markdown("### 🏗️ Architecture")
+    st.code("""
+Input: Video frames
+    ↓
+MediaPipe Hand Landmarker
+    ↓
+126 keypoints per frame (2 hands × 21 × 3)
+    ↓
+30 frames sequence → flatten → 3780 features
+    ↓
+Random Forest (200 trees)
+    ↓
+Predicted Sign + Confidence
+    """)
 
-        with st.spinner("Analysing video..."):
-            cap = cv2.VideoCapture(tmp_path)
-            sequence = []; sentence = []; last_sign = None
-            window = collections.deque(maxlen=5)
-            frame_count = 0
-
-            progress = st.progress(0, text="Processing...")
-            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret: break
-                frame = cv2.flip(frame, 1)
-                _, results = mediapipe_detection(frame)
-                kp = extract_keypoints(results)
-                sequence.append(kp)
-                if len(sequence) > 30: sequence.pop(0)
-                if len(sequence) == 30:
-                    flat = np.array(sequence).flatten().reshape(1, -1)
-                    probs = model.predict_proba(flat)[0]
-                    idx = int(np.argmax(probs)); conf = float(probs[idx])
-                    window.append(idx)
-                    if len(window) == 5:
-                        final = max(set(window), key=list(window).count)
-                        if conf > 0.7:
-                            sign = labels[final]
-                            if sign != last_sign:
-                                sentence.append(sign); last_sign = sign
-                frame_count += 1
-                if total > 0:
-                    progress.progress(min(frame_count/total, 1.0))
-
-            cap.release()
-            progress.empty()
-            os.unlink(tmp_path)
-
-        st.markdown("**Detected sentence:**")
-        result = " → ".join(sentence) if sentence else "No signs detected"
-        st.markdown(f'<div class="sentence-box">{result}</div>', unsafe_allow_html=True)
-
-# ── Tab 3: About ───────────────────────────────
 with tab3:
     st.markdown("""
 ## About This Project
 
-A **real-time sign language detection** system built with:
+A **real-time sign language detection** system that helps deaf people communicate.
 
+### Tech Stack
 | Component | Technology |
 |---|---|
 | Hand Detection | MediaPipe Tasks API |
@@ -170,16 +121,15 @@ A **real-time sign language detection** system built with:
 | Video Processing | OpenCV |
 | Web App | Streamlit |
 
-### How it works
-1. **MediaPipe** extracts 21 hand landmarks (x, y, z) per hand = 126 keypoints per frame
-2. **30 frames** are collected as one sequence
-3. **Random Forest** classifies the sequence into one of 10 signs
-4. Result displayed in real-time
+### How to run locally
+```bash
+conda activate signlang
+cd sign_language_detection
+OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python predict_realtime.py
+```
 
-### Supported Signs
-""")
-    cols = st.columns(5)
-    emojis = ["👋","🙏","✊","✌️","🙏","👍","✊","👆","👍","👎"]
-    for i, (sign, emoji) in enumerate(zip(labels, emojis)):
-        with cols[i % 5]:
-            st.markdown(f"**{emoji} {sign.upper()}**")
+### Dataset
+- 10 signs × 30 sequences × 30 frames = 9,000 frames
+- 126 keypoints per frame
+- Train/Test split: 80/20
+    """)
